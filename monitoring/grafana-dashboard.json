@@ -1,0 +1,34 @@
+{
+  "dashboard": {
+    "title": "FastAPI Metrics",
+    "panels": [
+      {
+        "title": "Request Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Response Time",
+        "targets": [
+          {
+            "expr": "http_request_duration_seconds"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])"
+          }
+        ],
+        "type": "graph"
+      }
+    ]
+  }
+}

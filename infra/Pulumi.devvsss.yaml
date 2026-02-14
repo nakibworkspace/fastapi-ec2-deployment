@@ -1,0 +1,4 @@
+config:
+  aws:region: ap-southeast-1
+  fastapi-application:database_url:
+    secure: AAABAEk94sEsNkyPc6gFxjQzqVM996M0TafFe+U2A8bzC5wnc0kIIfDBJCQSvTTVFrsGInay6ZaHuxuVX7pMtcXjZ47hZnfQtWmc2JV+OROnduaewoGNnlhBpw==

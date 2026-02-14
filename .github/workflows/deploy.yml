@@ -1,0 +1,109 @@
+name: Deploy to AWS EC2
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: fastapi-app-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+    
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Pulumi CLI
+      uses: pulumi/actions@v4
+    
+    - name: Install Pulumi dependencies
+      run: |
+        cd infra
+        pip install -r requirements.txt
+    
+    - name: Deploy infrastructure with Pulumi
+      uses: pulumi/actions@v4
+      with:
+        command: up
+        stack-name: dev
+        work-dir: infra
+      env:
+        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+    
+    - name: Run database migrations
+      run: |
+        pip install alembic psycopg2-binary sqlalchemy
+        alembic upgrade head
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    
+    - name: Get EC2 instance ID
+      id: get-instance
+      run: |
+        cd infra
+        INSTANCE_ID=$(pulumi stack output instance_id)
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+    
+    - name: Restart application on EC2
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        INSTANCE_ID=${{ steps.get-instance.outputs.instance_id }}
+        
+        # Wait for instance to be ready
+        aws ec2 wait instance-status-ok --instance-ids $INSTANCE_ID --region ${{ env.AWS_REGION }}
+        
+        # Send command to pull latest image and restart container
+        aws ssm send-command \
+          --instance-ids $INSTANCE_ID \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=[
+            "aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin $ECR_REGISTRY",
+            "docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest",
+            "docker stop fastapi-app || true",
+            "docker rm fastapi-app || true",
+            "docker run -d --name fastapi-app --restart unless-stopped -p 80:8000 -e DATABASE_URL=\"${{ secrets.DATABASE_URL }}\" $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          ]' \
+          --region ${{ env.AWS_REGION }}
+    
+    - name: Get deployment URL
+      run: |
+        cd infra
+        echo "Deployment Complete!"
+        echo "Application URL: $(pulumi stack output application_url)"
