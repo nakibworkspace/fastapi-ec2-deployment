@@ -1,7 +1,12 @@
 name: Deploy to AWS EC2
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:  # Also allow manual trigger
 
 env:
   AWS_REGION: ap-southeast-1
@@ -9,6 +14,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     steps:
     - name: Checkout code
