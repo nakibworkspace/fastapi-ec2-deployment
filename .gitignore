@@ -54,4 +54,6 @@ Thumbs.db
 # Alembic
 migrations/versions/*.pyc
 
-/venv
+venv*
+ec2-key*
+ec2-key.pub*
