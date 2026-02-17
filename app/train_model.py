@@ -2,6 +2,7 @@
 Simple sentiment classifier training script.
 Run this once to create the model file.
 """
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -36,7 +37,6 @@ texts = [
     "Great purchase, no complaints at all",
     "Wonderful item, exactly as described",
     "Very impressed, excellent quality",
-    
     # Negative reviews (0)
     "Terrible product, waste of money",
     "Poor quality and broke after one use",
@@ -62,38 +62,85 @@ texts = [
     "Not good at all, very disappointed",
     "Cheap and nasty, avoid this",
     "Rubbish product, complete waste",
-    "Very bad quality, don't buy"
+    "Very bad quality, don't buy",
 ]
 
 # Labels: 1 = positive, 0 = negative
 labels = [
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  # 25 positive
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   # 25 negative
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,  # 25 positive
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,  # 25 negative
 ]
 
 # Create pipeline with TF-IDF and Logistic Regression
-model = Pipeline([
-    ('tfidf', TfidfVectorizer(max_features=100, ngram_range=(1, 2))),
-    ('classifier', LogisticRegression(random_state=42, max_iter=1000))
-])
+model = Pipeline(
+    [
+        ("tfidf", TfidfVectorizer(max_features=100, ngram_range=(1, 2))),
+        ("classifier", LogisticRegression(random_state=42, max_iter=1000)),
+    ]
+)
 
 # Train the model
 print("Training sentiment classifier...")
 model.fit(texts, labels)
 
 # Create models directory if it doesn't exist
-os.makedirs('models', exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
 # Save the model
-model_path = 'models/sentiment_model.joblib'
+model_path = "models/sentiment_model.joblib"
 joblib.dump(model, model_path)
 print(f"Model saved to {model_path}")
 
 # Test the model
-test_texts = [
-    "This is great!",
-    "This is terrible!"
-]
+test_texts = ["This is great!", "This is terrible!"]
 predictions = model.predict(test_texts)
 probabilities = model.predict_proba(test_texts)
 
