@@ -49,10 +49,7 @@ jobs:
     
     - name: Run tests
       env:
-        POSTGRES_HOST: localhost
-        POSTGRES_USER: user
-        POSTGRES_PASSWORD: pass
-        POSTGRES_DB: testdb
+        DATABASE_URL: postgresql://user:pass@localhost:5432/testdb
         PYTHONPATH: .
       run: |
         pytest app/test_main.py -v --cov=app --cov-report=xml
