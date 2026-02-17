@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"
     postgres_db: str = "appdb"
-    postgres_host: str = "100.84.183.142"
+    postgres_host: str = "100.84.15.166"
     postgres_port: int = 5432
 
     feature_flag_url: str = ""
