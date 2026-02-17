@@ -1,5 +1,5 @@
-name: fastapi-application
-description: application fo fastapi aws
+name: poridhi-fastapi
+description: api setup
 runtime:
   name: python
   options:

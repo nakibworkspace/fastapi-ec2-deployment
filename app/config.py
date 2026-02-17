@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Use full database URL or individual components
-    database_url: str = "postgresql://postgres:postgres@100.84.183.142:5432/postgres"  # Full PostgreSQL URL (preferred)
+    database_url: str = "postgresql://postgres:postgres@100.84.15.166:5432/postgres"  # Full PostgreSQL URL (preferred)
     
     # Fallback to individual components if DATABASE_URL not provided
     postgres_user: str = "postgres"

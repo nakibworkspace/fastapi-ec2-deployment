@@ -4,7 +4,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@100.84.183.142:5432/postgres
+      - DATABASE_URL=postgresql://postgres:postgres@100.84.15.166:5432/postgres
     networks:
       - app-network
     healthcheck:

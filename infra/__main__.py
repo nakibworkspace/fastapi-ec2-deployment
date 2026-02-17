@@ -1,11 +1,12 @@
 import pulumi
 import pulumi_aws as aws
-import json
 
 # Configuration
 config = pulumi.Config()
 app_name = "fastapi-app"
-database_url = config.get("database_url") or "postgresql://postgres:postgres@localhost:5432/postgres"
+database_url = config.require("database_url")  # Must be set via: pulumi config set database_url <value>
+docker_image = config.require("docker_image")  # Must be set via: pulumi config set docker_image <value>
+ssh_public_key = config.get("ssh_public_key")  # Optional: your public SSH key for EC2 access
 
 # 1. VPC
 vpc = aws.ec2.Vpc(
@@ -91,72 +92,17 @@ security_group = aws.ec2.SecurityGroup(
     tags={"Name": f"{app_name}-sg"},
 )
 
-# 3. ECR Repository
-repo = aws.ecr.Repository(
-    f"{app_name}-repo",
-    force_delete=True,
-    image_scanning_configuration=aws.ecr.RepositoryImageScanningConfigurationArgs(
-        scan_on_push=True,
-    ),
-)
+# 3. SSH Key Pair (if public key provided)
+key_pair = None
+if ssh_public_key:
+    key_pair = aws.ec2.KeyPair(
+        f"{app_name}-keypair",
+        public_key=ssh_public_key,
+        tags={"Name": f"{app_name}-keypair"},
+    )
 
-# ECR Lifecycle Policy
-aws.ecr.LifecyclePolicy(
-    f"{app_name}-lifecycle",
-    repository=repo.name,
-    policy=json.dumps({
-        "rules": [{
-            "rulePriority": 1,
-            "description": "Keep last 10 images",
-            "selection": {
-                "tagStatus": "any",
-                "countType": "imageCountMoreThan",
-                "countNumber": 10
-            },
-            "action": {
-                "type": "expire"
-            }
-        }]
-    }),
-)
-
-# 4. IAM Role for EC2
-ec2_role = aws.iam.Role(
-    f"{app_name}-ec2-role",
-    assume_role_policy=json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Action": "sts:AssumeRole",
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "ec2.amazonaws.com"
-            }
-        }]
-    }),
-)
-
-# Attach ECR read policy
-aws.iam.RolePolicyAttachment(
-    f"{app_name}-ecr-policy",
-    role=ec2_role.name,
-    policy_arn="arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-)
-
-# Attach SSM policy for Session Manager
-aws.iam.RolePolicyAttachment(
-    f"{app_name}-ssm-policy",
-    role=ec2_role.name,
-    policy_arn="arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-)
-
-# Instance Profile
-instance_profile = aws.iam.InstanceProfile(
-    f"{app_name}-instance-profile",
-    role=ec2_role.name,
-)
-
-# 5. User Data Script
-user_data = pulumi.Output.all(repo.repository_url, database_url).apply(
+# 4. User Data Script - using Docker Hub
+user_data = pulumi.Output.all(docker_image, database_url).apply(
     lambda args: f"""#!/bin/bash
 set -e
 
@@ -167,35 +113,33 @@ systemctl start docker
 systemctl enable docker
 usermod -a -G docker ec2-user
 
-# Install AWS CLI v2
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-./aws/install
+# Pull image from Docker Hub
+echo "Pulling Docker image from Docker Hub: {args[0]}"
+docker pull {args[0]}
 
-# Login to ECR
-aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin {args[0].split('/')[0]}
-
-# Pull and run the container
-docker pull {args[0]}:latest
+# Stop and remove old container if exists
 docker stop fastapi-app || true
 docker rm fastapi-app || true
+
+# Run the container
 docker run -d --name fastapi-app --restart unless-stopped \
   -p 80:8000 \
   -e DATABASE_URL="{args[1]}" \
-  {args[0]}:latest
+  {args[0]}
 
 echo "Deployment complete!"
+echo "Application running at http://$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)"
 """
 )
 
-# 6. EC2 Instance
+# 5. EC2 Instance
 instance = aws.ec2.Instance(
     f"{app_name}-instance",
     instance_type="t3.small",
     ami="ami-01811d4912b4ccb26",  # Amazon Linux 2023 in ap-southeast-1
     subnet_id=public_subnet.id,
     vpc_security_group_ids=[security_group.id],
-    iam_instance_profile=instance_profile.name,
+    key_name=key_pair.key_name if key_pair else None,
     user_data=user_data,
     tags={"Name": f"{app_name}-instance"},
 )
@@ -204,5 +148,6 @@ instance = aws.ec2.Instance(
 pulumi.export("instance_id", instance.id)
 pulumi.export("instance_public_ip", instance.public_ip)
 pulumi.export("instance_public_dns", instance.public_dns)
-pulumi.export("ecr_repository_url", repo.repository_url)
 pulumi.export("application_url", instance.public_dns.apply(lambda dns: f"http://{dns}"))
+pulumi.export("ssh_command", instance.public_ip.apply(lambda ip: f"ssh ec2-user@{ip}"))
+pulumi.export("docker_image", docker_image)
