@@ -1,21 +1,14 @@
 import pulumi
 import pulumi_aws as aws
 
-# --------------------------------------------------
-# CONFIG
-# --------------------------------------------------
+# Configuration
 config = pulumi.Config()
-
 app_name = "fastapi-app"
+database_url = config.require("database_url")  # Must be set via: pulumi config set database_url <value>
+docker_image = config.require("docker_image")  # Must be set via: pulumi config set docker_image <value>
+ssh_public_key = config.get("ssh_public_key")  # Optional: your public SSH key for EC2 access
 
-database_url = config.require("database_url")
-docker_image = config.require("docker_image")
-ssh_public_key = config.require("ssh_public_key")  # REQUIRED now
-
-
-# --------------------------------------------------
-# VPC
-# --------------------------------------------------
+# 1. VPC
 vpc = aws.ec2.Vpc(
     f"{app_name}-vpc",
     cidr_block="10.0.0.0/16",
@@ -24,52 +17,51 @@ vpc = aws.ec2.Vpc(
     tags={"Name": f"{app_name}-vpc"},
 )
 
+# Internet Gateway
 igw = aws.ec2.InternetGateway(
     f"{app_name}-igw",
     vpc_id=vpc.id,
+    tags={"Name": f"{app_name}-igw"},
 )
 
+# Public Subnet
 public_subnet = aws.ec2.Subnet(
     f"{app_name}-public-subnet",
     vpc_id=vpc.id,
     cidr_block="10.0.1.0/24",
     availability_zone="ap-southeast-1a",
     map_public_ip_on_launch=True,
+    tags={"Name": f"{app_name}-public-subnet"},
 )
 
+# Route Table
 route_table = aws.ec2.RouteTable(
     f"{app_name}-rt",
     vpc_id=vpc.id,
+    tags={"Name": f"{app_name}-rt"},
 )
 
-aws.ec2.Route(
+# Route to Internet Gateway
+route = aws.ec2.Route(
     f"{app_name}-route",
     route_table_id=route_table.id,
     destination_cidr_block="0.0.0.0/0",
     gateway_id=igw.id,
 )
 
-aws.ec2.RouteTableAssociation(
+# Associate Route Table with Subnet
+rta = aws.ec2.RouteTableAssociation(
     f"{app_name}-rta",
     subnet_id=public_subnet.id,
     route_table_id=route_table.id,
 )
 
-
-# --------------------------------------------------
-# SECURITY GROUP
-# --------------------------------------------------
+# 2. Security Group for EC2
 security_group = aws.ec2.SecurityGroup(
     f"{app_name}-sg",
     vpc_id=vpc.id,
-    description="Allow HTTP + SSH",
+    description="Allow HTTP traffic",
     ingress=[
-        aws.ec2.SecurityGroupIngressArgs(
-            protocol="tcp",
-            from_port=22,
-            to_port=22,
-            cidr_blocks=["0.0.0.0/0"],
-        ),
         aws.ec2.SecurityGroupIngressArgs(
             protocol="tcp",
             from_port=80,
@@ -82,6 +74,12 @@ security_group = aws.ec2.SecurityGroup(
             to_port=8000,
             cidr_blocks=["0.0.0.0/0"],
         ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="tcp",
+            from_port=22,
+            to_port=22,
+            cidr_blocks=["0.0.0.0/0"],
+        ),
     ],
     egress=[
         aws.ec2.SecurityGroupEgressArgs(
@@ -89,73 +87,62 @@ security_group = aws.ec2.SecurityGroup(
             from_port=0,
             to_port=0,
             cidr_blocks=["0.0.0.0/0"],
-        )
+        ),
     ],
+    tags={"Name": f"{app_name}-sg"},
 )
 
+# 3. Use existing AWS Key Pair
+# Note: Key pair must be created in AWS first with:
+# aws ec2 create-key-pair --key-name fastapi-ec2-key --region ap-southeast-1 --query 'KeyMaterial' --output text > fastapi-ec2-key.pem
 
-# --------------------------------------------------
-# KEYPAIR
-# --------------------------------------------------
-key_pair = aws.ec2.KeyPair(
-    f"{app_name}-keypair",
-    public_key=ssh_public_key,
-)
-
-
-# --------------------------------------------------
-# USER DATA SCRIPT
-# --------------------------------------------------
+# 4. User Data Script - using Docker Hub
 user_data = pulumi.Output.all(docker_image, database_url).apply(
     lambda args: f"""#!/bin/bash
 set -e
 
-echo "Updating system..."
+# Install Docker
 yum update -y
-
-echo "Installing Docker..."
 yum install -y docker
 systemctl start docker
 systemctl enable docker
-usermod -aG docker ec2-user
+usermod -a -G docker ec2-user
 
-echo "Pulling container..."
+# Pull image from Docker Hub
+echo "Pulling Docker image from Docker Hub: {args[0]}"
 docker pull {args[0]}
 
-echo "Stopping old container..."
+# Stop and remove old container if exists
 docker stop fastapi-app || true
 docker rm fastapi-app || true
 
-echo "Running container..."
+# Run the container
 docker run -d --name fastapi-app --restart unless-stopped \
--p 80:8000 \
--e DATABASE_URL="{args[1]}" \
-{args[0]}
+  -p 80:8000 \
+  -e DATABASE_URL="{args[1]}" \
+  {args[0]}
 
-echo "Deployment finished"
+echo "Deployment complete!"
+echo "Application running at http://$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)"
 """
 )
 
-
-# --------------------------------------------------
-# EC2 INSTANCE
-# --------------------------------------------------
+# 5. EC2 Instance
 instance = aws.ec2.Instance(
     f"{app_name}-instance",
     instance_type="t3.small",
-    ami="ami-01811d4912b4ccb26",  # Amazon Linux 2023 (Singapore)
+    ami="ami-01811d4912b4ccb26",  # Amazon Linux 2023 in ap-southeast-1
     subnet_id=public_subnet.id,
     vpc_security_group_ids=[security_group.id],
-    key_name=key_pair.key_name,
+    key_name="fastapi-ec2-key",  # Use the AWS key pair name
     user_data=user_data,
     tags={"Name": f"{app_name}-instance"},
 )
 
-
-# --------------------------------------------------
-# OUTPUTS
-# --------------------------------------------------
-pulumi.export("public_ip", instance.public_ip)
-pulumi.export("public_dns", instance.public_dns)
-pulumi.export("app_url", instance.public_dns.apply(lambda d: f"http://{d}"))
-pulumi.export("ssh_command", instance.public_ip.apply(lambda ip: f"ssh -i ~/.ssh/fastapi-ec2-key ec2-user@{ip}"))
+# Exports
+pulumi.export("instance_id", instance.id)
+pulumi.export("instance_public_ip", instance.public_ip)
+pulumi.export("instance_public_dns", instance.public_dns)
+pulumi.export("application_url", instance.public_dns.apply(lambda dns: f"http://{dns}"))
+pulumi.export("ssh_command", instance.public_ip.apply(lambda ip: f"ssh ec2-user@{ip}"))
+pulumi.export("docker_image", docker_image)

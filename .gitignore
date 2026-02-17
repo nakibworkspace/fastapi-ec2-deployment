@@ -57,3 +57,5 @@ migrations/versions/*.pyc
 venv*
 ec2-key*
 ec2-key.pub*
+
+fastapi-ec2-key.pem*

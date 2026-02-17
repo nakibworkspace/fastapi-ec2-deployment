@@ -87,7 +87,7 @@ jobs:
     - name: Deploy to EC2
       env:
         EC2_HOST: ${{ secrets.EC2_HOST }}
-        EC2_USER: ec2-user
+        EC2_USER: ubuntu
         SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-app
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
