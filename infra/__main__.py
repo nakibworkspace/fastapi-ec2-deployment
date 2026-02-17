@@ -122,7 +122,7 @@ docker rm fastapi-app || true
 
 # Run the container
 docker run -d --name fastapi-app --restart unless-stopped \
-  -p 80:8000 \
+  -p 8000:8000 \
   -e DATABASE_URL="{args[1]}" \
   {args[0]}
 
