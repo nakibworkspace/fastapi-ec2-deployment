@@ -53,6 +53,7 @@ jobs:
         POSTGRES_USER: user
         POSTGRES_PASSWORD: pass
         POSTGRES_DB: testdb
+        PYTHONPATH: .
       run: |
         pytest app/test_main.py -v --cov=app --cov-report=xml
     
