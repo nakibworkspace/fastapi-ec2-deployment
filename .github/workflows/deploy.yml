@@ -1,12 +1,7 @@
 name: Deploy to AWS EC2
 
 on:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types:
-      - completed
-    branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only
 
 env:
   AWS_REGION: ap-southeast-1
@@ -14,7 +9,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     steps:
     - name: Checkout code
@@ -35,45 +29,6 @@ jobs:
         docker tag $DOCKER_IMAGE:$IMAGE_TAG $DOCKER_IMAGE:latest
         docker push $DOCKER_IMAGE:$IMAGE_TAG
         docker push $DOCKER_IMAGE:latest
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Install Pulumi CLI
-      uses: pulumi/actions@v4
-    
-    - name: Install Pulumi dependencies
-      run: |
-        cd infra
-        pip install -r requirements.txt
-    
-    - name: Configure Pulumi stack
-      run: |
-        cd infra
-        pulumi login
-        pulumi stack select dev || pulumi stack init dev
-        pulumi config set docker_image ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-app:latest
-        pulumi config set database_url ${{ secrets.DATABASE_URL }} --secret
-      env:
-        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-    
-    - name: Deploy infrastructure with Pulumi
-      uses: pulumi/actions@v4
-      with:
-        command: up
-        stack-name: dev
-        work-dir: infra
-      env:
-        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-    
-    - name: Run database migrations
-      run: |
-        pip install alembic psycopg2-binary sqlalchemy
-        alembic upgrade head
-      env:
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
     
     - name: Deploy to EC2 via SSH
       env:
@@ -98,10 +53,7 @@ jobs:
         EOF
         rm -f private_key.pem
     
-    - name: Get deployment URL
+    - name: Verify deployment
       run: |
-        cd infra
-        echo "Deployment Complete!"
-        echo "Application URL: $(pulumi stack output application_url)"
-      env:
-        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        echo "Deployment complete!"
+        echo "Application URL: http://${{ secrets.EC2_HOST }}"
