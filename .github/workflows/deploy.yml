@@ -47,10 +47,27 @@ jobs:
         echo "$SSH_PRIVATE_KEY" > private_key.pem
         chmod 600 private_key.pem
         ssh -o StrictHostKeyChecking=no -i private_key.pem $EC2_USER@$EC2_HOST << 'EOF'
+          # Ensure network exists
+          docker network create fastapi-network 2>/dev/null || true
+          
+          # Ensure PostgreSQL is running
+          docker ps -a | grep postgres-db || docker run -d \
+            --name postgres-db \
+            --network fastapi-network \
+            --restart unless-stopped \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=postgres \
+            -v postgres-data:/var/lib/postgresql/data \
+            postgres:15
+          
+          # Update FastAPI app
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-app:latest
           docker stop fastapi-app || true
           docker rm fastapi-app || true
-          docker run -d --name fastapi-app --restart unless-stopped \
+          docker run -d --name fastapi-app \
+            --network fastapi-network \
+            --restart unless-stopped \
             -p 80:8000 \
             -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
             ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-app:latest

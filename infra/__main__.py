@@ -124,7 +124,7 @@ docker rm fastapi-app || true
 docker run -d --name fastapi-app --restart unless-stopped \
   -p 8000:8000 \
   -e DATABASE_URL="postgresql://postgres:postgres@100.84.15.166:5432/postgres" \
-  {args[0]}
+  nakibhamed/fastapi-app:latest
 
 echo "Deployment complete!"
 """
